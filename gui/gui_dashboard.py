@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 
 from network.network_monitor import NetworkMonitor
 from network.pcap_reader import PcapAnalyzer
+from gui.alert_details_window import AlertDetailsWindow
 
 
 MAX_PACKET_ROWS = 200
@@ -39,6 +40,7 @@ class NIDSGUI(ctk.CTk):
 
         self.capture_thread = None
         self.analysis_thread = None
+        self.open_windows = {}
 
         # Live capture uptime
         self.gui_capture_running = False
@@ -84,9 +86,11 @@ class NIDSGUI(ctk.CTk):
             return
 
         row = (
+            alert_data["alert_id"],
             alert_data["time"],
             alert_data["type"],
             alert_data["source"],
+            alert_data["target"],
             alert_data["details"]
         )
 
@@ -208,16 +212,17 @@ class NIDSGUI(ctk.CTk):
 
         ctk.CTkLabel(
             right_top,
-            text="Alerts",
+            text="Alerts (Double-click to investigate)",
             font=ctk.CTkFont(size=18, weight="bold")
         ).grid(row=2, column=0, sticky="w", padx=16, pady=(8, 8))
 
         self.alert_table = self._create_table(
             right_top,
-            columns=("time", "type", "source", "details"),
-            headings=("Time", "Type", "Source", "Details")
+            columns=("id", "time", "type", "source", "target", "details"),
+            headings=("Alert ID", "Time", "Type", "Source", "Target", "Details")
         )
         self.alert_table.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        self.alert_table.tree.bind("<Double-1>", self.open_alert_details)
 
     def _create_stat_card(self, parent, column, title, value):
         card = ctk.CTkFrame(parent, corner_radius=18)
@@ -267,7 +272,7 @@ class NIDSGUI(ctk.CTk):
 
         for col, heading in zip(columns, headings):
             tree.heading(col, text=heading)
-            tree.column(col, width=115, anchor="center")
+            tree.column(col, width=120, anchor="center")
 
         tree.grid(row=0, column=0, sticky="nsew")
         y_scroll.grid(row=0, column=1, sticky="ns")
@@ -358,7 +363,6 @@ class NIDSGUI(ctk.CTk):
     def _run_pcap_analysis(self, file_path):
         try:
             result = self.pcap_analyzer.analyze(file_path)
-
             self.after(0, lambda: self._apply_pcap_results(result))
         except Exception as exc:
             self.after(0, lambda: self._handle_pcap_error(str(exc)))
@@ -387,6 +391,40 @@ class NIDSGUI(ctk.CTk):
         self.upload_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         messagebox.showerror("PCAP Analysis Error", error_message)
+
+    # -------------------------
+    # Alert details GUI
+    # -------------------------
+    def open_alert_details(self, event=None):
+        tree = self.alert_table.tree
+        selection = tree.selection()
+        if not selection:
+            return
+
+        item = tree.item(selection[0])
+        values = item.get("values", [])
+        if not values:
+            return
+
+        alert_id = values[0]
+
+        if alert_id in self.open_windows and self.open_windows[alert_id].winfo_exists():
+            self.open_windows[alert_id].focus()
+            return
+
+        if self.current_mode == "live":
+            alert = self.monitor.get_alert(alert_id)
+            packets = self.monitor.get_alert_packets(alert_id)
+        else:
+            alert = self.pcap_analyzer.get_alert(alert_id)
+            packets = self.pcap_analyzer.get_alert_packets(alert_id)
+
+        if not alert:
+            messagebox.showwarning("Alert Not Found", "Could not load the selected alert details.")
+            return
+
+        window = AlertDetailsWindow(self, alert, packets)
+        self.open_windows[alert_id] = window
 
     # -------------------------
     # Dashboard refresh
