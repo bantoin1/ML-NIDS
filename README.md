@@ -134,7 +134,7 @@ NOTES
 AUTHORS
 
 Brandon Antoine
-Pooja Pooja Badiwale
+Pooja Badiwale
 
 --------------------------------------------------
 
